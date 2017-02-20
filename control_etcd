@@ -69,15 +69,15 @@ install(){
 	version
 }
 tail(){
-	tail -f $LOG_FILE
+	tailf $LOG_FILE
 }
 stop(){
-	kill -9 `pgrep etcd`
+	kill `pgrep etcd -x`
 }
 restart(){
 	stop
 	sleep 1
-	exist_run
+	run
 }
 status(){
 	check_run
@@ -111,8 +111,7 @@ run(){
 	if [ $ok -gt 0 ];then
 		return 1
 	fi
-	etcd -name ${THIS_NAME} -data-dir ${DATA_DIR} -initial-advertise-peer-urls http://${THIS_IP}:2380 -advertise-client-urls http://${THIS_IP}:2379 -listen-peer-urls http://${THIS_IP}:2379 -listen-client-urls http://0.0.0.0:2379 -initial-cluster-token ${TOKEN} -initial-cluster ${CLUSTER} -initial-cluster-state ${CLUSTER_STATE} >>${LOG_FILE} 2>&1 &
-		
+	/usr/bin/etcd -name ${THIS_NAME} -data-dir ${DATA_DIR} -listen-client-urls http://0.0.0.0:2379 -listen-peer-urls http://${THIS_IP}:2380 -initial-advertise-peer-urls http://${THIS_IP}:2380 -advertise-client-urls http://${THIS_IP}:2379 -initial-cluster-token ${TOKEN} -initial-cluster ${CLUSTER} -initial-cluster-state ${CLUSTER_STATE} >> ${LOG_FILE} 2>&1 &
 }
 exist_run(){
 	run
@@ -147,7 +146,7 @@ member(){
 	echo "when add returns,do as follows: "
 	echo "1. add etcd-N,HOST_N in global config of scripts"
 	echo "2. copy script to the running node"
-	echo "3. modify current machine info ,THIS_NAME=etcd-N,THIS_HOST=HOST_N "
+	echo "3. modify current machine info ,THIS_NAME=etcd-N,THIS_HOST=HOST_N or run by auto decide"
 	echo "4. use ./control_etcd start  to run in new node."
 	echo ""
 	echo "use ./etcdctl member remove etcd-ID  to remove node from cluster"
@@ -176,7 +175,7 @@ cluster)
 	cluster
 	;;
 tail)
-	tailf
+	tail
 	;;
 install)
 	install
