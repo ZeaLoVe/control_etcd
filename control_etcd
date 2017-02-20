@@ -1,0 +1,199 @@
+#!/bin/bash
+#auth:ZeaLoVe
+#data:2017-2-20
+
+###global etcd cluster config###
+TOKEN=etcd-debug-cluster              #etcd token,each cluster need be different
+CLUSTER_STATE=existing                #change if call new
+NAME_1=etcd-1
+NAME_2=etcd-2
+NAME_3=etcd-3
+HOST_1=172.24.133.145
+HOST_2=172.24.133.146
+HOST_3=172.24.133.114
+CLUSTER=${NAME_1}=http://${HOST_1}:2380,${NAME_2}=http://${HOST_2}:2380,${NAME_3}=http://${HOST_3}:2380
+ENDPOINTS=http://${HOST_1}:2379,http://${HOST_2}:2379,http://${HOST_3}:2379
+DATA_DIR=/tmp/etcd_data/
+BACKUP_DIR=/tmp/etcd_backup/
+LOG_FILE=/var/log/etcd.log
+#DATA_DIR=/data/etcd_data/
+#BACKUP_DIR=/data/etcd_backup/
+#LOG_FILE=/data/var/logs/etcd.log
+
+###############################
+##### current machine info ####
+
+#will auto_decide if not set, by compare inner_ip with HOST_X
+#THIS_NAME=${NAME_1}
+#THIS_IP=${HOST_1}
+
+###############################
+
+###support cmd###
+auto_decide(){
+	if [ -n "$THIS_IP" ];then
+                return
+        fi
+
+	#get inner_ip
+	cur_ip=`ifconfig|grep 'inet '|grep -v '127.0'|xargs|awk -F '[ :]' '{print $3}'`
+	echo $cur_ip
+	for index in {1..10}
+	do
+		CUR_HOST="HOST_$index"
+		CUR_NAME="NAME_$index"
+		ip=${!CUR_HOST}
+		if [ ! -n ip ];then
+                	return 0
+        	fi
+		if [ "$cur_ip"x = "$ip"x ];then
+			THIS_NAME=${!CUR_NAME}
+			THIS_IP=${!CUR_HOST}
+			echo "auto decide THIS_NAME:$THIS_NAME THIS_IP:$THIS_IP"
+			return
+		fi
+	done
+}
+check_run(){
+	return `pgrep etcd -x|wc -l`
+}
+install(){
+	if [ -e /usr/bin/etcd ];then
+        	echo "etcd already install with:"
+    		version
+		echo "replace by new version:"
+	fi
+	cp etcd /usr/bin/etcd
+	cp etcdctl /usr/bin/etcdctl
+	cp control_etcd /usr/bin/control_etcd
+	version
+}
+tail(){
+	tail -f $LOG_FILE
+}
+stop(){
+	kill -9 `pgrep etcd`
+}
+restart(){
+	stop
+	sleep 1
+	exist_run
+}
+status(){
+	check_run
+	running=$?
+	if [ $running -gt 0 ];then
+	        echo started
+        else
+		echo stoped
+        fi
+}
+check_config(){
+	auto_decide
+	if [ ! -n "$THIS_NAME" ];then
+		echo "You need to set THIS_NAME in this script."
+		return 1
+	fi
+	if [ ! -n "$THIS_IP" ];then
+                echo "You need to set THIS_IP in this script."
+                return 1
+        fi
+}
+run(){
+	check_run
+	running=$?
+	if [ $running -gt 0 ];then
+		echo "already running"
+		return 1
+	fi
+	check_config
+	ok=$?
+	if [ $ok -gt 0 ];then
+		return 1
+	fi
+	etcd -name ${THIS_NAME} -data-dir ${DATA_DIR} -initial-advertise-peer-urls http://${THIS_IP}:2380 -advertise-client-urls http://${THIS_IP}:2379 -listen-peer-urls http://${THIS_IP}:2379 -listen-client-urls http://0.0.0.0:2379 -initial-cluster-token ${TOKEN} -initial-cluster ${CLUSTER} -initial-cluster-state ${CLUSTER_STATE} >>${LOG_FILE} 2>&1 &
+		
+}
+exist_run(){
+	run
+}
+new_run(){
+	CLUSTER_STATE=new
+	run
+}
+version(){
+	/usr/bin/etcd -version
+}
+backup(){
+	/usr/bin/etcdctl backup --backup-dir ${BACKUP_DIR} --data-dir ${DATA_DIR}
+}
+cluster(){
+	/usr/bin/etcdctl -C $ENDPOINTS cluster-health
+}
+recover(){
+	check_run
+        running=$?
+        if [ $running -gt 0 ];then
+                echo "etcd still running will not recover!"
+		echo "You can use ./control_etcd stop   stop etcd,then call recover, but it's allways unnecessary."
+                return 1
+        fi	
+	/usr/bin/etcd -data-dir ${BACKUP_DIR} -listen-client-urls http://0.0.0.0:2379 -advertise-client-urls http://${THIS_IP}:2379 --force-new-cluster >>${LOG_FILE} 2>&1 &
+}
+member(){
+	echo "use ./etcdctl member list  to show etcd member list."
+	echo ""
+	echo "use ./etcdctl member add etcd-N http://HOST_N:2380  to add new etcd node."
+	echo "when add returns,do as follows: "
+	echo "1. add etcd-N,HOST_N in global config of scripts"
+	echo "2. copy script to the running node"
+	echo "3. modify current machine info ,THIS_NAME=etcd-N,THIS_HOST=HOST_N "
+	echo "4. use ./control_etcd start  to run in new node."
+	echo ""
+	echo "use ./etcdctl member remove etcd-ID  to remove node from cluster"
+	echo "etcd-ID can see from command ./etcdctl member list"
+	echo ""
+	echo "use ./control_etcd cluster  to show cluster state."
+}
+
+case "$1" in
+start)
+	exist_run
+	;;
+new)
+        new_run
+        ;;
+stop)
+        stop
+        ;;
+restart)
+        restart
+        ;;
+status)
+	status
+	;;
+cluster)
+	cluster
+	;;
+tail)
+	tailf
+	;;
+install)
+	install
+	;;
+version)
+	version
+	;;
+backup)
+	backup
+	;;
+member)
+	member
+	;;
+recover)
+	recover
+	;;
+*)
+    echo "use new/start/stop/restart/status/tail/version/install/backup/cluster/recover/member"
+    exit 1
+esac
