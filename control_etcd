@@ -16,28 +16,23 @@ ENDPOINTS=http://${HOST_1}:2379,http://${HOST_2}:2379,http://${HOST_3}:2379
 DATA_DIR=/tmp/etcd_data/
 BACKUP_DIR=/tmp/etcd_backup/
 LOG_FILE=/var/log/etcd.log
-#DATA_DIR=/data/etcd_data/
-#BACKUP_DIR=/data/etcd_backup/
-#LOG_FILE=/data/var/logs/etcd.log
+export GOMAXPROCS=12                  #use by old version of etcd build with go1.4-
 
 ###############################
 ##### current machine info ####
-
 #will auto_decide if not set, by compare inner_ip with HOST_X
 #THIS_NAME=${NAME_1}
 #THIS_IP=${HOST_1}
-
 ###############################
 
-###support cmd###
 auto_decide(){
 	if [ -n "$THIS_IP" ];then
+		echo "THIS_NAME,THIS_IP is given, use these setting."
                 return
         fi
 
 	#get inner_ip
 	cur_ip=`ifconfig|grep 'inet '|grep -v '127.0'|xargs|awk -F '[ :]' '{print $3}'`
-	echo $cur_ip
 	for index in {1..10}
 	do
 		CUR_HOST="HOST_$index"
@@ -103,7 +98,7 @@ run(){
 	check_run
 	running=$?
 	if [ $running -gt 0 ];then
-		echo "already running"
+		echo "etcd already running, abort."
 		return 1
 	fi
 	check_config
@@ -124,12 +119,16 @@ version(){
 	/usr/bin/etcd -version
 }
 backup(){
-	/usr/bin/etcdctl backup --backup-dir ${BACKUP_DIR} --data-dir ${DATA_DIR}
+	clean-backup
+	/usr/bin/etcdctl -C $ENDPOINTS backup --backup-dir ${BACKUP_DIR} --data-dir ${DATA_DIR}
 }
-cluster(){
+clean-backup(){
+	rm -fr ${BACKUP_DIR}
+}
+health(){
 	/usr/bin/etcdctl -C $ENDPOINTS cluster-health
 }
-recover(){
+recovery(){
 	check_run
         running=$?
         if [ $running -gt 0 ];then
@@ -143,16 +142,16 @@ member(){
 	echo "use ./etcdctl member list  to show etcd member list."
 	echo ""
 	echo "use ./etcdctl member add etcd-N http://HOST_N:2380  to add new etcd node."
-	echo "when add returns,do as follows: "
+	echo "when it returns, do as follows: "
 	echo "1. add etcd-N,HOST_N in global config of scripts"
-	echo "2. copy script to the running node"
+	echo "2. copy script to new node"
 	echo "3. modify current machine info ,THIS_NAME=etcd-N,THIS_HOST=HOST_N or run by auto decide"
-	echo "4. use ./control_etcd start  to run in new node."
+	echo "4. use ./control_etcd start  to run on new node."
 	echo ""
 	echo "use ./etcdctl member remove etcd-ID  to remove node from cluster"
 	echo "etcd-ID can see from command ./etcdctl member list"
 	echo ""
-	echo "use ./control_etcd cluster  to show cluster state."
+	echo "use ./control_etcd health  to show cluster state."
 }
 
 case "$1" in
@@ -171,8 +170,8 @@ restart)
 status)
 	status
 	;;
-cluster)
-	cluster
+health)
+	health
 	;;
 tail)
 	tail
@@ -183,16 +182,19 @@ install)
 version)
 	version
 	;;
+clean-backup)
+	clean-backup
+	;;
 backup)
 	backup
 	;;
 member)
 	member
 	;;
-recover)
-	recover
+recovery)
+	recovery
 	;;
 *)
-    echo "use new/start/stop/restart/status/tail/version/install/backup/cluster/recover/member"
+    echo "use new/start/stop/restart/status/tail/version/install/backup/health/recovery/member"
     exit 1
 esac
