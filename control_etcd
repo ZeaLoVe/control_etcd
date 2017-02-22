@@ -112,6 +112,7 @@ exist_run(){
 	run
 }
 new_run(){
+	rm -fr ${DATA_DIR}
 	CLUSTER_STATE=new
 	run
 }
