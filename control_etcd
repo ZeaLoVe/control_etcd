@@ -1,6 +1,7 @@
 #!/bin/bash
 #auth:ZeaLoVe
 #data:2017-2-20
+#version:0.1.0
 
 ###global etcd cluster config###
 TOKEN=etcd-debug-cluster              #etcd token,each cluster need be different
@@ -16,7 +17,7 @@ ENDPOINTS=http://${HOST_1}:2379,http://${HOST_2}:2379,http://${HOST_3}:2379
 DATA_DIR=/tmp/etcd_data/
 BACKUP_DIR=/tmp/etcd_backup/
 LOG_FILE=/var/log/etcd.log
-export GOMAXPROCS=12                  #use by old version of etcd build with go1.4-
+#export GOMAXPROCS=12                  #use by old version of etcd build with go1.4-
 
 ###############################
 ##### current machine info ####
@@ -120,8 +121,19 @@ version(){
 	/usr/bin/etcd -version
 }
 backup(){
+	TMP_BACKUP_DIR=/tmp/etcd_backup_tmp/
+	/usr/bin/etcdctl -C $ENDPOINTS backup --backup-dir ${TMP_BACKUP_DIR} --data-dir ${DATA_DIR}
+	if [ `ls ${TMP_BACKUP_DIR}member/snap |wc -w` -eq 0 ];then
+		echo "empty backup, abort"
+		return 1
+	fi
+	
+	if [ `ls ${TMP_BACKUP_DIR}member/wal |wc -w` -eq 0 ];then
+		echo "empty backup, abort"
+		return 1
+	fi
 	clean-backup
-	/usr/bin/etcdctl -C $ENDPOINTS backup --backup-dir ${BACKUP_DIR} --data-dir ${DATA_DIR}
+	mv ${TMP_BACKUP_DIR} ${BACKUP_DIR}
 }
 clean-backup(){
 	rm -fr ${BACKUP_DIR}
@@ -138,6 +150,13 @@ recovery(){
                 return 1
         fi	
 	/usr/bin/etcd -data-dir ${BACKUP_DIR} -listen-client-urls http://0.0.0.0:2379 -advertise-client-urls http://${THIS_IP}:2379 --force-new-cluster >>${LOG_FILE} 2>&1 &
+}
+repair(){
+	auto_decide
+	NODE_ID=`/usr/bin/etcdctl -C $ENDPOINTS member list |grep ${THIS_NAME}|awk -F ':' '{print $1}'`
+	echo `/usr/bin/etcdctl -C $ENDPOINTS member remove ${NODE_ID}`
+	sleep 1
+	echo `/usr/bin/etcdctl -C $ENDPOINTS member add ${THIS_NAME} http://${THIS_IP}:2380`
 }
 member(){
 	echo "use ./etcdctl member list  to show etcd member list."
@@ -195,7 +214,10 @@ member)
 recovery)
 	recovery
 	;;
+repair)
+	repair
+	;;
 *)
-    echo "use new/start/stop/restart/status/tail/version/install/backup/health/recovery/member"
+    echo "use new/start/stop/restart/status/tail/version/install/backup/health/recovery/member/repair"
     exit 1
 esac
